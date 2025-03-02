@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { spotify, initiateLogin } from '@/lib/spotify';
+import { initiateLogin } from '@/lib/spotify';
 import PlaylistGrid from '@/components/PlaylistGrid';
 import Navbar from '@/components/Navbar';
-import Image from "next/image";
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);

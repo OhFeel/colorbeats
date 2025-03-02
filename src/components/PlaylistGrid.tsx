@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import { spotify, getAllUserPlaylists } from '@/lib/spotify';
-import { rgbToHsl, sortByRainbow, type RGB } from '@/lib/colors';
+import { getAllUserPlaylists } from '@/lib/spotify';
+import { sortByRainbow, type RGB } from '@/lib/colors';
 import { extractDominantColor } from '@/lib/colorExtractor';
 import type { SimplifiedPlaylist } from '@spotify/web-api-ts-sdk';
 import PlaylistModal from './PlaylistModal';

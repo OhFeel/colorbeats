@@ -2,8 +2,13 @@ import { useEffect, useState } from 'react';
 import { spotify, logout } from '@/lib/spotify';
 import Image from 'next/image';
 
+interface SpotifyUser {
+  display_name: string;
+  images?: { url: string }[];
+}
+
 export default function Navbar() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SpotifyUser | null>(null);
   const [playlistCount, setPlaylistCount] = useState(0);
 
   useEffect(() => {

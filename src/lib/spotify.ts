@@ -1,4 +1,4 @@
-import { AccessToken, SpotifyApi, PlaylistedTrack, SimplifiedPlaylist, Track } from '@spotify/web-api-ts-sdk';
+import { SpotifyApi, PlaylistedTrack, SimplifiedPlaylist, Track } from '@spotify/web-api-ts-sdk';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID || '';
 const REDIRECT_URI = process.env.NEXT_PUBLIC_SPOTIFY_REDIRECT_URI || '';
@@ -20,6 +20,11 @@ export const spotify = SpotifyApi.withImplicitGrant(
 const RATE_LIMIT_WINDOW = 1000; // 1 second window
 const MAX_REQUESTS_PER_WINDOW = 5; // Maximum requests per second
 const requestTimestamps: number[] = [];
+
+interface SpotifyErrorResponse {
+  status?: number;
+  headers?: Record<string, string>;
+}
 
 async function rateLimitedRequest<T>(request: () => Promise<T>): Promise<T> {
   // Clean up old timestamps
@@ -43,9 +48,10 @@ async function rateLimitedRequest<T>(request: () => Promise<T>): Promise<T> {
 
   try {
     return await request();
-  } catch (error: any) {
-    if (error?.status === 429) { // Rate limit exceeded
-      const retryAfter = parseInt(error.headers?.['retry-after'] || '1');
+  } catch (error: unknown) {
+    const spotifyError = error as SpotifyErrorResponse;
+    if (spotifyError?.status === 429) { // Rate limit exceeded
+      const retryAfter = parseInt(spotifyError.headers?.['retry-after'] || '1');
       await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
       return rateLimitedRequest(request);
     }
@@ -129,11 +135,7 @@ export async function reorderPlaylist(playlistId: string, tracks: PlaylistedTrac
   }
 }
 
-interface PlaylistWithDate extends SimplifiedPlaylist {
-  firstTrackDate?: string;
-}
-
-export async function getAllUserPlaylists() {
+export async function getAllUserPlaylists(): Promise<SimplifiedPlaylist[]> {
   try {
     const allPlaylists = [];
     let offset = 0;
@@ -197,7 +199,7 @@ export async function getAllUserPlaylists() {
         !playlist.public
       )
     );
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching playlists:', error);
     return [];
   }

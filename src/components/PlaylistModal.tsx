@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { type SimplifiedPlaylist, type PlaylistedTrack } from '@spotify/web-api-ts-sdk';
-import { RGB, rgbToHsl, sortByRainbow, getColorCategory } from '@/lib/colors';
-import { spotify, getPlaylistTracks, reorderPlaylist, checkPlaylistPermissions } from '@/lib/spotify';
+import Image from 'next/image';
+import { RGB, rgbToHsl, getColorCategory } from '@/lib/colors';
+import { getPlaylistTracks, reorderPlaylist, checkPlaylistPermissions } from '@/lib/spotify';
 import { extractDominantColor } from '@/lib/colorExtractor';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -33,8 +34,8 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
       try {
         const hasPermission = await checkPlaylistPermissions(playlist.id);
         setCanModify(hasPermission);
-      } catch (error) {
-        console.error('Failed to check permissions:', error);
+      } catch {
+        console.error('Failed to check permissions');
         setCanModify(false);
       }
     }
@@ -59,17 +60,14 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
       const tracksWithColors = await Promise.all(
         originalTracks.map(async (item) => {
           if (!('album' in item.track)) return null;
-          try {
+         
             const color = await extractDominantColor(item.track.album.images[0].url);
             return { 
               ...item, 
               dominantColor: color,
               originalIndex: item.originalIndex 
             };
-          } catch (error) {
-            console.warn(`Failed to extract color for track: ${item.track.name}`);
-            return null;
-          }
+          
         })
       );
 
@@ -108,8 +106,8 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
         setProgress('');
         setIsReordering(false);
       }, 2000);
-    } catch (error) {
-      console.error('Error reordering playlist:', error);
+    } catch {
+      
       setProgress('❌ Error reordering playlist. Please try again.');
       setTimeout(() => {
         setProgress('');
@@ -129,10 +127,12 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
         </button>
         <div className="flex gap-6">
           {playlist.images[0] && (
-            <img
+            <Image
               src={playlist.images[0].url}
               alt={playlist.name}
-              className="h-48 w-48 rounded-lg object-cover"
+              width={192}
+              height={192}
+              className="rounded-lg object-cover"
             />
           )}
           <div className="flex flex-col justify-between">
@@ -169,7 +169,7 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
                 </button>
               ) : (
                 <p className="mt-4 text-sm text-gray-500">
-                  This playlist can't be modified because you don't own it
+                  This playlist can&apos;t be modified because you don&apos;t own it
                 </p>
               )}
             </div>
@@ -187,10 +187,12 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
                 className="flex items-center gap-4 border-b border-gray-200 p-4 dark:border-gray-700"
               >
                 {'album' in track.track && (
-                  <img
+                  <Image
                     src={track.track.album.images[0]?.url}
                     alt={track.track.name}
-                    className="h-12 w-12 rounded-md"
+                    width={48}
+                    height={48}
+                    className="rounded-md"
                   />
                 )}
                 <div>
