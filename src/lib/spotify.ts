@@ -1,7 +1,7 @@
 import { SpotifyApi, PlaylistedTrack, SimplifiedPlaylist, Track } from '@spotify/web-api-ts-sdk';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID || '';
-const REDIRECT_URI = process.env.NEXT_PUBLIC_SPOTIFY_REDIRECT_URI || '';
+const REDIRECT_URI = 'https://colorbeats.matsdh.nl';
 
 const SCOPES = [
   'playlist-read-private',
