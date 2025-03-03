@@ -21,6 +21,38 @@ const RATE_LIMIT_WINDOW = 1000; // 1 second window
 const MAX_REQUESTS_PER_WINDOW = 5; // Maximum requests per second
 const requestTimestamps: number[] = [];
 
+const PLAYLIST_BACKUP_PREFIX = 'playlist_backup_';
+
+// Add new functions for backup management
+export function savePlaylistBackup(playlistId: string, tracks: PlaylistedTrack[]) {
+  localStorage.setItem(
+    `${PLAYLIST_BACKUP_PREFIX}${playlistId}`, 
+    JSON.stringify(tracks.map(t => t.track.uri))
+  );
+}
+
+export function getPlaylistBackup(playlistId: string): string[] | null {
+  const backup = localStorage.getItem(`${PLAYLIST_BACKUP_PREFIX}${playlistId}`);
+  return backup ? JSON.parse(backup) : null;
+}
+
+export function hasPlaylistBackup(playlistId: string): boolean {
+  return localStorage.getItem(`${PLAYLIST_BACKUP_PREFIX}${playlistId}`) !== null;
+}
+
+export async function restorePlaylistFromBackup(playlistId: string): Promise<boolean> {
+  const backup = getPlaylistBackup(playlistId);
+  if (!backup) return false;
+
+  try {
+    await spotify.playlists.updatePlaylistItems(playlistId, { uris: backup });
+    return true;
+  } catch (error) {
+    console.error('Error restoring playlist:', error);
+    return false;
+  }
+}
+
 interface SpotifyErrorResponse {
   status?: number;
   headers?: Record<string, string>;
@@ -59,28 +91,9 @@ async function rateLimitedRequest<T>(request: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function initiateLogin() {
-  const accessToken = localStorage.getItem('spotify_access_token');
-  if (accessToken) {
-    try {
-      await spotify.authenticate();
-      return true;
-    } catch {
-      localStorage.removeItem('spotify_access_token');
-    }
-  }
-  
-  const params = new URLSearchParams(window.location.hash.substring(1));
-  const newAccessToken = params.get('access_token');
-  
-  if (newAccessToken) {
-    localStorage.setItem('spotify_access_token', newAccessToken);
-    return true;
-  }
-
+export function initiateLogin(): void {
   const authUrl = `https://accounts.spotify.com/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES.join(' '))}&response_type=token`;
   window.location.href = authUrl;
-  return false;
 }
 
 export async function logout() {

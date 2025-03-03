@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { type SimplifiedPlaylist, type PlaylistedTrack } from '@spotify/web-api-ts-sdk';
 import Image from 'next/image';
 import { RGB, rgbToHsl, getColorCategory } from '@/lib/colors';
-import { getPlaylistTracks, reorderPlaylist, checkPlaylistPermissions } from '@/lib/spotify';
+import { getPlaylistTracks, reorderPlaylist, checkPlaylistPermissions, savePlaylistBackup, hasPlaylistBackup, restorePlaylistFromBackup } from '@/lib/spotify';
 import { extractDominantColor } from '@/lib/colorExtractor';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -20,6 +20,8 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
   const [isReordering, setIsReordering] = useState(false);
   const [progress, setProgress] = useState('');
   const [canModify, setCanModify] = useState(false);
+  const [timeEstimate, setTimeEstimate] = useState<number>(0);
+  const [hasBackup, setHasBackup] = useState(false);
 
   useEffect(() => {
     async function fetchTracks() {
@@ -42,13 +44,32 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
     checkPermissions();
   }, [playlist.id]);
 
+  useEffect(() => {
+    async function checkBackup() {
+      setHasBackup(hasPlaylistBackup(playlist.id));
+    }
+    checkBackup();
+  }, [playlist.id]);
+
   const openInSpotify = () => {
     window.open(playlist.external_urls.spotify, '_blank');
+  };
+
+  const calculateTimeEstimate = (trackCount: number) => {
+    // Rough estimation: 1 second per track for color analysis + 2 seconds base time
+    return Math.ceil(trackCount * 1 + 2);
   };
 
   const reorderByColor = async () => {
     try {
       setIsReordering(true);
+      const estimate = calculateTimeEstimate(tracks.length);
+      setTimeEstimate(estimate);
+      setProgress(`Starting reorder process (estimated: ${estimate} seconds)`);
+
+      // Backup current order
+      savePlaylistBackup(playlist.id, tracks);
+
       setProgress('Fetching tracks...');
       
       const originalTracks = tracks.map((track, index) => ({
@@ -116,6 +137,41 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
     }
   };
 
+  const handleCancel = async () => {
+    if (!isReordering) return;
+    
+    try {
+      setProgress('Cancelling and restoring original order...');
+      await restorePlaylistFromBackup(playlist.id);
+      setProgress('✅ Restored original order');
+      setTimeout(() => {
+        setProgress('');
+        setIsReordering(false);
+      }, 2000);
+    } catch {
+      setProgress('❌ Error restoring original order');
+    }
+  };
+
+  const handleRecover = async () => {
+    try {
+      setProgress('Recovering previous playlist order...');
+      const success = await restorePlaylistFromBackup(playlist.id);
+      if (success) {
+        setProgress('✅ Recovered previous order');
+        // Refresh tracks
+        const refreshedTracks = await getPlaylistTracks(playlist.id);
+        setTracks(refreshedTracks);
+      } else {
+        setProgress('❌ No backup found');
+      }
+      setTimeout(() => setProgress(''), 2000);
+    } catch {
+      setProgress('❌ Error recovering playlist');
+      setTimeout(() => setProgress(''), 2000);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="relative h-[80vh] w-full max-w-4xl rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
@@ -145,7 +201,14 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
                 {playlist.tracks?.total ?? 0} tracks
               </p>
               {progress && (
-                <p className="mt-2 text-sm text-green-500">{progress}</p>
+                <div className="mt-2">
+                  <p className="text-sm text-green-500">{progress}</p>
+                  {isReordering && timeEstimate > 0 && (
+                    <p className="text-xs text-gray-500">
+                      This might take around {timeEstimate} seconds
+                    </p>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex gap-4">
@@ -155,22 +218,34 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
               >
                 Open in Spotify
               </button>
-              {canModify ? (
-                <button
-                  onClick={reorderByColor}
-                  disabled={isReordering}
-                  className={`mt-4 flex items-center gap-2 rounded-full px-6 py-2 font-semibold ${
-                    isReordering 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                  }`}
-                >
-                  {isReordering ? 'Reordering...' : 'Sort by Colors'}
-                </button>
-              ) : (
-                <p className="mt-4 text-sm text-gray-500">
-                  This playlist can&apos;t be modified because you don&apos;t own it
-                </p>
+              {canModify && (
+                <>
+                  {isReordering ? (
+                    <button
+                      onClick={handleCancel}
+                      className="mt-4 flex items-center gap-2 rounded-full bg-red-500 px-6 py-2 font-semibold text-white hover:bg-red-600"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={reorderByColor}
+                        className="mt-4 flex items-center gap-2 rounded-full bg-blue-500 px-6 py-2 font-semibold text-white hover:bg-blue-600"
+                      >
+                        Sort by Colors
+                      </button>
+                      {hasBackup && (
+                        <button
+                          onClick={handleRecover}
+                          className="mt-4 flex items-center gap-2 rounded-full bg-gray-500 px-6 py-2 font-semibold text-white hover:bg-gray-600"
+                        >
+                          Recover Previous
+                        </button>
+                      )}
+                    </>
+                  )}
+                </>
               )}
             </div>
           </div>

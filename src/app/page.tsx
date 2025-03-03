@@ -14,26 +14,19 @@ export default function Home() {
   };
 
   useEffect(() => {
-    async function checkAuth() {
-      try {
-        // Check if user just logged out
-        if (sessionStorage.getItem('just_logged_out')) {
-          sessionStorage.removeItem('just_logged_out');
-          setIsAuthenticated(false);
-          setIsLoading(false);
-          return;
-        }
+    // Only check for access token from redirect
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    const accessToken = params.get('access_token');
 
-        const isAuthed = await initiateLogin();
-        setIsAuthenticated(isAuthed);
-      } catch (error) {
-        console.error('Auth error:', error);
-        setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
-      }
+    if (sessionStorage.getItem('just_logged_out')) {
+      sessionStorage.removeItem('just_logged_out');
+      setIsAuthenticated(false);
+    } else if (accessToken) {
+      localStorage.setItem('spotify_access_token', accessToken);
+      setIsAuthenticated(true);
     }
-    checkAuth();
+    
+    setIsLoading(false);
   }, []);
 
   if (isLoading) {
