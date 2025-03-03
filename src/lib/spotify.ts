@@ -207,41 +207,31 @@ export async function reorderPlaylist(playlistId: string, tracks: PlaylistedTrac
 
 export async function getAllUserPlaylists(): Promise<SimplifiedPlaylist[]> {
   try {
-    const allPlaylists = [];
+    const allPlaylists: SimplifiedPlaylist[] = [];
     let offset = 0;
-    const limit = 20; // Reduced from 50 to 20
+    const limit = 50;
+    let total = 0;
 
-    // Get current user for checking ownership
-    const currentUser = await rateLimitedRequest(() => spotify.currentUser.profile());
-
-    while (true) {
-      // Get only user's own playlists first
+    do {
       const response = await rateLimitedRequest(() => 
         spotify.currentUser.playlists.playlists(limit, offset)
       );
-
-      allPlaylists.push(...response.items);
-
-      if (!response.next) break;
-      offset += limit;
       
-      // Add delay between pagination requests
-      await new Promise(r => setTimeout(r, 100));
-    }
+      if (!response) break;
+      
+      total = response.total;
+      allPlaylists.push(...response.items);
+      offset += limit;
 
-    // Filter and return results
-    return allPlaylists.filter(playlist => 
-      playlist.images?.length > 0 &&
-      (playlist.tracks?.total ?? 0) > 0 &&
-      (
-        playlist.owner.id === currentUser.id ||
-        playlist.collaborative ||
-        !playlist.public
-      )
-    );
-  } catch (error: unknown) {
+      // Add small delay between requests
+      await new Promise(r => setTimeout(r, 100));
+    } while (offset < total);
+
+    console.log(`Fetched ${allPlaylists.length} playlists successfully`);
+    return allPlaylists;
+  } catch (error) {
     console.error('Error fetching playlists:', error);
-    return [];
+    throw error;
   }
 }
 

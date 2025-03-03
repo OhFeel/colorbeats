@@ -17,20 +17,26 @@ export default function PlaylistGrid() {
   const [loading, setLoading] = useState(true);
   const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistWithColor | null>(null);
   const [sortBy, setSortBy] = useState<'color' | 'date' | 'tracks'>('date');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchPlaylists() {
       try {
         setLoading(true);
+        setError(null);
+        console.log('Fetching playlists...');
         const allPlaylists = await getAllUserPlaylists();
+        console.log('Received playlists:', allPlaylists.length);
+        
+        // Filter out playlists without images first
+        const playlistsWithImages = allPlaylists.filter(playlist => 
+          playlist.images && playlist.images.length > 0 && playlist.images[0]?.url
+        );
         
         const playlistsWithColors = await Promise.all(
-          allPlaylists.map(async (playlist) => {
+          playlistsWithImages.map(async (playlist) => {
             try {
-              const imageUrl = playlist.images[0]?.url;
-              if (!imageUrl) {
-                throw new Error('No image URL available');
-              }
+              const imageUrl = playlist.images[0].url;
               const color = await extractDominantColor(imageUrl);
               return { 
                 ...playlist, 
@@ -45,13 +51,15 @@ export default function PlaylistGrid() {
         );
 
         const validPlaylists = playlistsWithColors.filter((p): p is PlaylistWithColor => p !== null);
+        console.log('Valid playlists after color extraction:', validPlaylists.length);
         
-        // Sort playlists based on selected sort method
         const sortedPlaylists = sortPlaylists(validPlaylists, sortBy);
+        console.log('Setting playlists in state...');
         setPlaylists(sortedPlaylists);
+        setLoading(false);
       } catch (error) {
         console.error('Error fetching playlists:', error);
-      } finally {
+        setError('Failed to load playlists. Please try again.');
         setLoading(false);
       }
     }
@@ -89,12 +97,49 @@ export default function PlaylistGrid() {
     setSelectedPlaylist(null);
   };
 
+  // Add loading state debug
+  console.log('Current loading state:', loading);
+  console.log('Current playlists count:', playlists.length);
+
+  if (error) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg text-red-600 dark:text-red-400">
+            {error}
+          </p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg bg-green-500 px-4 py-2 text-white hover:bg-green-600"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
           <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-green-500 border-t-transparent"></div>
-          <p className="text-lg text-gray-600 dark:text-gray-400">Loading your playlists...</p>
+          <p className="text-lg text-gray-600 dark:text-gray-400">
+            Loading your playlists... Please wait.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Add empty state handling
+  if (!loading && playlists.length === 0) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg text-gray-600 dark:text-gray-400">
+            No playlists found. Try refreshing the page.
+          </p>
         </div>
       </div>
     );
@@ -136,7 +181,9 @@ export default function PlaylistGrid() {
                 src={playlist.imageUrl}
                 alt={playlist.name}
                 fill
+                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
                 className="object-cover transition-transform duration-300 group-hover:scale-110"
+                priority={false}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               <div className="absolute bottom-0 left-0 right-0 p-4 text-white opacity-0 transition-all duration-300 group-hover:opacity-100">
