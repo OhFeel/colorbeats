@@ -17,8 +17,8 @@ export const spotify = SpotifyApi.withImplicitGrant(
 );
 
 // Add rate limiting utilities
-const RATE_LIMIT_WINDOW = 1000; // 1 second window
-const MAX_REQUESTS_PER_WINDOW = 5; // Maximum requests per second
+const RATE_LIMIT_WINDOW = 2000; // 2 second window
+const MAX_REQUESTS_PER_WINDOW = 3; // Maximum requests per 2 seconds
 const requestTimestamps: number[] = [];
 
 const PLAYLIST_BACKUP_PREFIX = 'playlist_backup_';
@@ -58,37 +58,94 @@ interface SpotifyErrorResponse {
   headers?: Record<string, string>;
 }
 
+// Add type for queue items
+type QueuedRequest = () => Promise<unknown>;
+
+// Request queue implementation
+class RequestQueue {
+  private queue: QueuedRequest[] = [];
+  private processing = false;
+  private lastRequest = 0;
+  private readonly minDelay = 50; // Minimum 50ms between requests
+
+  async add<T>(request: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          // Ensure minimum delay between requests
+          const now = Date.now();
+          const timeSinceLastRequest = now - this.lastRequest;
+          if (timeSinceLastRequest < this.minDelay) {
+            await new Promise(r => setTimeout(r, this.minDelay - timeSinceLastRequest));
+          }
+
+          const result = await request();
+          this.lastRequest = Date.now();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+
+      if (!this.processing) {
+        this.processQueue();
+      }
+    });
+  }
+
+  private async processQueue() {
+    if (this.processing || this.queue.length === 0) return;
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const request = this.queue.shift();
+      if (request) {
+        try {
+          await request();
+        } catch (error) {
+          console.error('Queue processing error:', error);
+        }
+      }
+      // Add small delay between requests
+      await new Promise(r => setTimeout(r, this.minDelay));
+    }
+
+    this.processing = false;
+  }
+}
+
+const requestQueue = new RequestQueue();
+
 async function rateLimitedRequest<T>(request: () => Promise<T>): Promise<T> {
-  // Clean up old timestamps
-  const now = Date.now();
-  while (
-    requestTimestamps.length > 0 && 
-    requestTimestamps[0] < now - RATE_LIMIT_WINDOW
-  ) {
-    requestTimestamps.shift();
-  }
+  return requestQueue.add(async () => {
+    // Clean up old timestamps
+    const now = Date.now();
+    while (requestTimestamps.length > 0 && 
+           requestTimestamps[0] < now - RATE_LIMIT_WINDOW) {
+      requestTimestamps.shift();
+    }
 
-  // If we've hit the rate limit, wait until the next window
-  if (requestTimestamps.length >= MAX_REQUESTS_PER_WINDOW) {
-    const oldestRequest = requestTimestamps[0];
-    const waitTime = RATE_LIMIT_WINDOW - (now - oldestRequest);
-    await new Promise(resolve => setTimeout(resolve, waitTime));
-  }
-
-  // Add current request timestamp
-  requestTimestamps.push(now);
-
-  try {
-    return await request();
-  } catch (error: unknown) {
-    const spotifyError = error as SpotifyErrorResponse;
-    if (spotifyError?.status === 429) { // Rate limit exceeded
-      const retryAfter = parseInt(spotifyError.headers?.['retry-after'] || '1');
-      await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+    // If we've hit the rate limit, wait
+    if (requestTimestamps.length >= MAX_REQUESTS_PER_WINDOW) {
+      const delay = RATE_LIMIT_WINDOW - (now - requestTimestamps[0]);
+      await new Promise(resolve => setTimeout(resolve, delay));
       return rateLimitedRequest(request);
     }
-    throw error;
-  }
+
+    try {
+      const result = await request();
+      requestTimestamps.push(Date.now());
+      return result;
+    } catch (error: unknown) {
+      const spotifyError = error as SpotifyErrorResponse;
+      if (spotifyError?.status === 429) {
+        const retryAfter = parseInt(spotifyError.headers?.['retry-after'] || '2');
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        return rateLimitedRequest(request);
+      }
+      throw error;
+    }
+  });
 }
 
 export function initiateLogin(): void {
@@ -152,61 +209,31 @@ export async function getAllUserPlaylists(): Promise<SimplifiedPlaylist[]> {
   try {
     const allPlaylists = [];
     let offset = 0;
-    const limit = 50;
-    let hasMore = true;
+    const limit = 20; // Reduced from 50 to 20
 
     // Get current user for checking ownership
     const currentUser = await rateLimitedRequest(() => spotify.currentUser.profile());
 
-    while (hasMore) {
-      // Get both user's playlists and followed playlists
-      const [ownedResponse, followedResponse] = await Promise.all([
-        rateLimitedRequest(() => spotify.currentUser.playlists.playlists(50, offset)),
-        rateLimitedRequest(() => spotify.playlists.getUsersPlaylists(currentUser.id, 50, offset))
-      ]);
-
-      // Get first track's added_at date for each playlist
-      const playlistsWithDates = await Promise.all(
-        [...ownedResponse.items, ...followedResponse.items].map(async (playlist) => {
-          try {
-            const tracks = await rateLimitedRequest(() => 
-              spotify.playlists.getPlaylistItems(
-                playlist.id,
-                undefined,      // optional market parameter
-                'items.added_at', // fields parameter
-                1,              // limit parameter
-                0               // offset parameter
-              )
-            );
-            
-            return {
-              ...playlist,
-              firstTrackDate: tracks.items[0]?.added_at
-            };
-          } catch (error) {
-            console.warn(`Failed to get date for playlist ${playlist.name}:`, error);
-            return playlist;
-          }
-        })
+    while (true) {
+      // Get only user's own playlists first
+      const response = await rateLimitedRequest(() => 
+        spotify.currentUser.playlists.playlists(limit, offset)
       );
 
-      // Combine results
-      allPlaylists.push(...playlistsWithDates);
+      allPlaylists.push(...response.items);
 
-      // Check if we need to fetch more
-      hasMore = ownedResponse.next !== null || followedResponse.next !== null;
+      if (!response.next) break;
       offset += limit;
+      
+      // Add delay between pagination requests
+      await new Promise(r => setTimeout(r, 100));
     }
 
-    // Remove duplicates using Set
-    const uniquePlaylists = Array.from(
-      new Map(allPlaylists.map(p => [p.id, p])).values()
-    );
-
-    return uniquePlaylists.filter(playlist => 
-      playlist.images?.length > 0 && // Has images
-      playlist.tracks?.total && playlist.tracks.total > 0 && // Has tracks
-      ( // User has write access
+    // Filter and return results
+    return allPlaylists.filter(playlist => 
+      playlist.images?.length > 0 &&
+      (playlist.tracks?.total ?? 0) > 0 &&
+      (
         playlist.owner.id === currentUser.id ||
         playlist.collaborative ||
         !playlist.public
