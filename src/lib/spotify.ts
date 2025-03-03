@@ -192,12 +192,38 @@ export async function getPlaylistTracks(playlistId: string): Promise<PlaylistedT
   );
 }
 
+const SPOTIFY_CHUNK_LIMIT = 100; // Spotify's limit for playlist track updates
+
 export async function reorderPlaylist(playlistId: string, tracks: PlaylistedTrack[]) {
   try {
-    // Update playlist with new track order
-    await spotify.playlists.updatePlaylistItems(playlistId, {
-      uris: tracks.map(track => track.track.uri)
-    });
+    // Split tracks into chunks of SPOTIFY_CHUNK_LIMIT
+    const chunks = [];
+    for (let i = 0; i < tracks.length; i += SPOTIFY_CHUNK_LIMIT) {
+      chunks.push(tracks.slice(i, i + SPOTIFY_CHUNK_LIMIT));
+    }
+
+    // Process chunks sequentially
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const uris = chunk.map(track => track.track.uri);
+      
+      // Calculate the offset for this chunk
+      const offset = i * SPOTIFY_CHUNK_LIMIT;
+      
+      // Use replace items endpoint for first chunk, add items for subsequent chunks
+      if (i === 0) {
+        await spotify.playlists.updatePlaylistItems(playlistId, { uris });
+      } else {
+        // For subsequent chunks, add them at the correct position
+        await spotify.playlists.addItemsToPlaylist(playlistId, uris, offset);
+      }
+
+      // Add a small delay between chunks to avoid rate limiting
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
     return true;
   } catch (error) {
     console.error('Error reordering playlist:', error);

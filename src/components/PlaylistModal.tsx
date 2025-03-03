@@ -65,7 +65,9 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
       setIsReordering(true);
       const estimate = calculateTimeEstimate(tracks.length);
       setTimeEstimate(estimate);
-      setProgress(`Starting reorder process (estimated: ${estimate} seconds)`);
+      
+      // Update progress message to indicate chunked processing
+      setProgress('Starting reorder process...');
 
       // Backup current order
       savePlaylistBackup(playlist.id, tracks);
@@ -119,7 +121,7 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
       // Update UI with new order
       setTracks(sortedTracks);
       
-      setProgress(`Reordering ${sortedTracks.length} tracks...`);
+      setProgress(`Reordering ${sortedTracks.length} tracks (in chunks)...`);
       await reorderPlaylist(playlist.id, sortedTracks);
       
       setProgress('✅ Playlist updated successfully!');
@@ -127,8 +129,8 @@ export default function PlaylistModal({ playlist, onClose }: PlaylistModalProps)
         setProgress('');
         setIsReordering(false);
       }, 2000);
-    } catch {
-      
+    } catch (error) {
+      console.error('Error during reordering:', error);
       setProgress('❌ Error reordering playlist. Please try again.');
       setTimeout(() => {
         setProgress('');
